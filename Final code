@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+@author: rohithneralla
+"""
+#importing the libraries
+import numpy as np
+import pandas as pd
+from catboost import Pool, CatBoostClassifier
+import matplotlib.pyplot as plt
+import seaborn as sns
+sns.set(style='darkgrid', font_scale=2)
+
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import LabelEncoder
+
+
+#reading the data files
+df_train = pd.read_csv('/Users/rohithneralla/Documents/Rohith/UCF/Fall 22/Machine Learning/competition 2/spaceship-titanic/train.csv')
+df_test = pd.read_csv('/Users/rohithneralla/Documents/Rohith/UCF/Fall 22/Machine Learning/competition 2/spaceship-titanic/test.csv')
+
+df_train.head()
+
+df_train['Train'] = 'Yes'
+df_test['Train'] = 'No'
+
+combined = pd.concat([df_train, df_test])
+combined
+
+
+#Exploratory Data Analysis
+combined.hist(bins = 25, figsize = (12, 12))
+plt.show()
+
+columns=['Age', 'RoomService', 'FoodCourt', 'ShoppingMall', 'Spa', 'VRDeck',]
+q, r =divmod(len(columns), 2)
+fig, ax=plt.subplots(q, 2, figsize=(18,10))
+for i in range(0,len(columns)):
+    q, r =divmod(i, 2)
+    sns.boxplot(data=combined, x=columns[i], ax=ax[q, r])
+plt.show()
+
+
+#Feature Engineering
+
+#imputation
+combined.isnull().sum()
+
+#dealing with missing numerical data
+combined[['Age', 'RoomService','FoodCourt','ShoppingMall','Spa','VRDeck']].median()
+
+combined[['RoomService','FoodCourt','ShoppingMall','Spa','VRDeck']] = combined[['RoomService','FoodCourt','ShoppingMall','Spa','VRDeck']].fillna(0)
+
+combined['Age'] = combined['Age'].fillna(combined['Age'].median())
+
+#dealing with missing categorical type
+combined['VIP'].value_counts()
+
+combined['VIP'] = combined['VIP'].fillna(False)
+
+combined['HomePlanet'].value_counts()
+
+combined['HomePlanet'] = combined['HomePlanet'].fillna('Mars')
+
+combined['Destination'].value_counts()
+
+combined['Destination'] = combined['Destination'].fillna("'TRAPPIST-1e")
+
+combined['CryoSleep'].value_counts()
+
+combined['CryoSleep'] = combined['CryoSleep'].fillna(False)
+
+combined[['Deck', 'Num', 'Side']] = combined['Cabin'].str.split('/', expand=True)
+combined
+
+combined['Deck'].value_counts()
+
+combined['Deck'] = combined['Deck'].fillna('T')
+
+combined['Num'].value_counts()
+
+combined['Num'] = combined['Num'].fillna('0')
+
+combined['Side'].value_counts()
+
+combined['Side'] = combined['Side'].fillna('P')
+
+combined['Sum_spend'] = combined['RoomService'] + combined['FoodCourt'] + combined['ShoppingMall'] + combined['Spa'] + combined['VRDeck']
+combined
+
+combined['AgeGroup'] = pd.cut(combined.Age, bins=[-1, 5, 13, 18, 60, 100], labels = ['Baby', 'Child', 'Teen', 'Adult', 'Elderly'])
+combined
+
+combined = combined.drop(['Name', 'Cabin'],axis=1)
+combined
+
+combined.isnull().sum()
+
+
+
+#Converting (Encoding) columns to numerical
+from sklearn.preprocessing import LabelEncoder
+
+categorical_cols= ['HomePlanet','CryoSleep','Destination','VIP','Deck','Side','Num', 'AgeGroup']
+for i in categorical_cols:
+    print(i)
+    le=LabelEncoder()
+    arr = np.array(combined[i]).astype(str)
+    le.fit(arr)
+    combined[i]=le.transform(combined[i].astype(str))
+
+combined.set_index('PassengerId',inplace=True)
+
+combined.head()
+
+
+#Splitting dataset - Training and test
+df_train = combined[combined['Train'] == 'Yes']
+df_train.drop('Train', axis=1, inplace=True)
+df_train
+
+df_test = combined[combined['Train'] == 'No']
+df_test.drop('Train', axis=1, inplace=True)
+df_test
+
+df_train['Transported']=df_train['Transported'].replace({True:1,False:0})
+df_train
+
+X=df_train.drop('Transported',axis=1)
+y = df_train['Transported']
+
+X.columns
+
+X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=0)
+
+
+#Model Selection
+
+#Catboost classifier
+from catboost import CatBoostClassifier
+cat=CatBoostClassifier(iterations=1500,
+                         eval_metric='Accuracy',
+                        verbose=0)
+
+cat.fit(X_train,y_train)
+
+pred = cat.predict(X_train)
+pred_y = cat.predict(X_val)
+print('\nCatboost Classifier-')
+print('Training accuracy score: ' + str(accuracy_score(y_train.values,pred)))
+print('Validation accuracy score: '+ str(accuracy_score(y_val.values,pred_y)))
+
+#Gradient boost classifier
+from sklearn.ensemble import GradientBoostingClassifier
+gb=GradientBoostingClassifier(random_state=1,n_estimators=250,learning_rate=0.15,max_depth=3)
+
+gb.fit(X_train,y_train)
+
+pred=gb.predict(X_train)
+pred_y=gb.predict(X_val)
+print('\nGradient boost classifier-')
+print('Training accuracy score: ' + str(accuracy_score(y_train.values,pred)))
+print('Validation accuracy score: '+ str(accuracy_score(y_val.values,pred_y)))
+
+#GridSearchCV
+from sklearn.model_selection import GridSearchCV
+gcv=GridSearchCV(CatBoostClassifier(),param_grid={'iterations': range(200,2000,200), 'eval_metric': ['Accuracy'],'verbose':[0]},cv=3)
+
+gcv.fit(X_train,y_train)
+
+pred=gcv.predict(X_train)
+pred_y=gcv.predict(X_val)
+print('\nGridSearchCV-')
+print('Training accuracy score: ' + str(accuracy_score(y_train.values,pred)))
+print('Validation accuracy score: '+ str(accuracy_score(y_val.values,pred_y)))
+
+gcv.fit(X,y)
+
+
+y_pred = gcv.predict(df_test)
+
+#Submission
+
+sub=pd.DataFrame({'Transported':y_pred.astype(bool)},index=df_test.index)
+sub.reset_index(inplace=True)
+sub.head()
+
+sub.to_csv('submission_final.csv', index=False)
+
+
+
+
+
+
+
+
+
+
